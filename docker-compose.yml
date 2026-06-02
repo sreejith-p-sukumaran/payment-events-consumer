@@ -1,0 +1,20 @@
+# The consumer owns its own datastore. Kafka is the shared bus, owned by and
+# run from the outbox-payments-service repo (this service connects to it at
+# localhost:9092). MySQL is exposed on 3307 to avoid clashing with the
+# producer's MySQL on 3306 when both run on one machine.
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: consumer-mysql
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_DATABASE: payments_consumer
+      MYSQL_USER: consumer
+      MYSQL_PASSWORD: consumer
+      MYSQL_ROOT_PASSWORD: root
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
