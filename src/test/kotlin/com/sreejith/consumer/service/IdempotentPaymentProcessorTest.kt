@@ -1,10 +1,12 @@
 package com.sreejith.consumer.service
 
+import com.sreejith.consumer.error.NonRetryableException
 import com.sreejith.consumer.event.PaymentCompletedEvent
 import com.sreejith.consumer.repository.PaymentAuditRepository
 import com.sreejith.consumer.repository.ProcessedEventRepository
 import com.sreejith.consumer.support.AbstractMySqlIntegrationTest
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -59,5 +61,41 @@ class IdempotentPaymentProcessorTest(
 
 		assertThat(processedEventRepository.count()).isEqualTo(2)
 		assertThat(paymentAuditRepository.countByPaymentId("pay-2")).isEqualTo(2)
+	}
+
+	@Test
+	fun `an invalid event is rejected as non-retryable and writes nothing`() {
+		val invalid = PaymentCompletedEvent(
+			eventId = "evt-bad",
+			paymentId = "pay-bad",
+			amount = BigDecimal("-1.00"), // non-positive amount — a business-rule violation
+			currency = "EUR",
+			occurredAt = Instant.parse("2026-06-02T10:00:00Z"),
+		)
+
+		assertThatThrownBy { processor.process(invalid) }
+			.isInstanceOf(NonRetryableException::class.java)
+			.hasMessageContaining("amount must be positive")
+
+		// Validation runs before any side effect, so nothing is persisted.
+		assertThat(processedEventRepository.count()).isZero()
+		assertThat(paymentAuditRepository.count()).isZero()
+	}
+
+	@Test
+	fun `a malformed currency is rejected as non-retryable`() {
+		val invalid = PaymentCompletedEvent(
+			eventId = "evt-cur",
+			paymentId = "pay-cur",
+			amount = BigDecimal("10.00"),
+			currency = "euro", // not a 3-letter ISO code
+			occurredAt = Instant.parse("2026-06-02T10:00:00Z"),
+		)
+
+		assertThatThrownBy { processor.process(invalid) }
+			.isInstanceOf(NonRetryableException::class.java)
+			.hasMessageContaining("currency")
+
+		assertThat(processedEventRepository.count()).isZero()
 	}
 }

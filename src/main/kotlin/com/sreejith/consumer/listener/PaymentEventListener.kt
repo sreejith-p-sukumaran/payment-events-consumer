@@ -1,6 +1,8 @@
 package com.sreejith.consumer.listener
 
+import com.fasterxml.jackson.core.JacksonException
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.sreejith.consumer.error.NonRetryableException
 import com.sreejith.consumer.event.PaymentCompletedEvent
 import com.sreejith.consumer.service.IdempotentPaymentProcessor
 import org.apache.kafka.clients.consumer.ConsumerRecord
@@ -21,7 +23,16 @@ class PaymentEventListener(
 		groupId = "\${spring.kafka.consumer.group-id}",
 	)
 	fun onMessage(record: ConsumerRecord<String, String>) {
-		val event = objectMapper.readValue(record.value(), PaymentCompletedEvent::class.java)
+		// A payload that cannot be parsed will never parse on retry — classify it
+		// as non-retryable so it skips the retry topics and goes straight to the DLT.
+		val event = try {
+			objectMapper.readValue(record.value(), PaymentCompletedEvent::class.java)
+		} catch (ex: JacksonException) {
+			throw NonRetryableException(
+				"Malformed payment event payload at ${record.topic()}-${record.partition()}@${record.offset()}",
+				ex,
+			)
+		}
 		try {
 			processor.process(event)
 		} catch (ex: DataIntegrityViolationException) {
