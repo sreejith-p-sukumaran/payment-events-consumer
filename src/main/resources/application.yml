@@ -27,9 +27,21 @@ spring:
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    # The retry-topic machinery re-publishes failed records forward to the retry
+    # topics and finally to the DLT, so the consumer now also needs a producer.
+    # String serializers mirror the consumer's String deserializers; Spring Boot
+    # auto-configures a KafkaTemplate<String, String> from this.
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
 
 consumer:
   topic: payment-events
+  dlt-topic: payment-events-dlt
+  retry:
+    # 3 total deliveries = 1 original + 2 retries, then the DLT. Fixed 2s backoff.
+    attempts: 3
+    backoff-ms: 2000
 
 logging:
   level:
