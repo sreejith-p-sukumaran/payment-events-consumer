@@ -98,7 +98,10 @@ class PaymentConsumerEndToEndTest(
 		publish(fence)
 		producer.flush()
 
-		await().atMost(Duration.ofSeconds(30)).untilAsserted {
+		// Generous window: under full-suite load (many Testcontainers + embedded
+		// brokers, plus retry-topic provisioning at startup) the real-broker
+		// consumer's group-join can take a while to begin delivering.
+		await().atMost(Duration.ofSeconds(60)).untilAsserted {
 			assertThat(processedEventRepository.existsById("e2e-fence")).isTrue()
 		}
 

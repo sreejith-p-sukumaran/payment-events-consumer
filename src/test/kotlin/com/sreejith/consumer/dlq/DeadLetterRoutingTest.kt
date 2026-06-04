@@ -6,11 +6,13 @@ import com.sreejith.consumer.repository.PaymentAuditRepository
 import com.sreejith.consumer.repository.ProcessedEventRepository
 import com.sreejith.consumer.support.AbstractMySqlIntegrationTest
 import org.apache.kafka.clients.consumer.Consumer
+import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.apache.kafka.clients.producer.Producer
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.serialization.StringDeserializer
 import org.apache.kafka.common.serialization.StringSerializer
 import org.assertj.core.api.Assertions.assertThat
+import org.awaitility.Awaitility.await
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -80,7 +82,7 @@ class DeadLetterRoutingTest(
 		producer.send(ProducerRecord("payment-events", invalid.paymentId, payload))
 		producer.flush()
 
-		val dltRecord = KafkaTestUtils.getSingleRecord(dltConsumer, "payment-events-dlt", Duration.ofSeconds(20))
+		val dltRecord = awaitDltRecordWithKey(invalid.paymentId)
 
 		// Original payload is preserved as the DLT record value.
 		assertThat(dltRecord.value()).isEqualTo(payload)
@@ -96,6 +98,19 @@ class DeadLetterRoutingTest(
 		assertThat(processedEventRepository.count()).isZero()
 	}
 
-	private fun headerValue(record: org.apache.kafka.clients.consumer.ConsumerRecord<String, String>, name: String) =
+	/**
+	 * Polls the (shared, append-only) DLT and returns the record for the given key.
+	 * Accumulates across polls because each poll only returns newly-fetched records.
+	 */
+	private fun awaitDltRecordWithKey(key: String): ConsumerRecord<String, String> {
+		val collected = mutableListOf<ConsumerRecord<String, String>>()
+		await().atMost(Duration.ofSeconds(20)).untilAsserted {
+			dltConsumer.poll(Duration.ofMillis(500)).forEach { collected += it }
+			assertThat(collected.any { it.key() == key }).isTrue()
+		}
+		return collected.first { it.key() == key }
+	}
+
+	private fun headerValue(record: ConsumerRecord<String, String>, name: String) =
 		record.headers().lastHeader(name)?.let { String(it.value()) }
 }
