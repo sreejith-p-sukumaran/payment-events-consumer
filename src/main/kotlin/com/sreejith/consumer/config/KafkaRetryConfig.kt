@@ -27,7 +27,10 @@ import java.time.Clock
  * inspector/replay path.
  */
 @Configuration
-class KafkaRetryConfig(private val clock: Clock) : RetryTopicConfigurationSupport() {
+class KafkaRetryConfig(
+	private val clock: Clock,
+	private val properties: ConsumerProperties,
+) : RetryTopicConfigurationSupport() {
 
 	/**
 	 * Non-blocking retry schedules each delayed re-delivery on a TaskScheduler.
@@ -57,7 +60,10 @@ class KafkaRetryConfig(private val clock: Clock) : RetryTopicConfigurationSuppor
 			add(RecordHeader(DltHeaders.EXCEPTION_MESSAGE, message.toByteArray()))
 			add(RecordHeader(DltHeaders.ATTEMPTS, attemptsOf(record).toString().toByteArray()))
 			add(RecordHeader(DltHeaders.FAILED_AT, clock.instant().toString().toByteArray()))
-			add(RecordHeader(DltHeaders.ORIGINAL_TOPIC, record.topic().toByteArray()))
+			// Always the main topic — the replay target. NOTE: record.topic() here is
+			// the *immediate* source, which for an exhausted record is a retry topic,
+			// not the origin; replaying there would be wrong.
+			add(RecordHeader(DltHeaders.ORIGINAL_TOPIC, properties.topic.toByteArray()))
 		}
 	}
 
